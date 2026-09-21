@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 class WorkflowScheduleTest(unittest.TestCase):
-    def test_workflow_contains_five_independent_schedule_entries(self):
+    def test_workflow_contains_six_independent_schedule_entries(self):
         workflow = Path(__file__).parent / ".github" / "workflows" / "auto-charge.yml"
         content = workflow.read_text(encoding="utf-8")
 
@@ -12,10 +12,11 @@ class WorkflowScheduleTest(unittest.TestCase):
             "17 20 * * *",
             "47 20 * * *",
             "17 21 * * *",
+            "47 21 * * *",
             "7 22 * * *",
         }
 
-        self.assertEqual(content.count("    - cron:"), 5)
+        self.assertEqual(content.count("    - cron:"), 6)
         for cron in expected_crons:
             self.assertIn(f"    - cron: '{cron}'", content)
 
