@@ -6,12 +6,13 @@ Neptune 自动充电脚本
 2. 如果存在，自动在同一设备/端口恢复充电
 3. 按余额最大化充电，最长 480 分钟
 4. 支持重试：失败后 10 分钟重试，最多 3 次
+5. 每半小时运行一次，目标端口非空闲时直接退出，不重复启动或重试
 
 用法：
     python main.py
 
 VPS 定时任务：
-    5 6 * * * cd /path/to/auto-charger && python3 main.py >> charge.log 2>&1
+    0,30 * * * * cd /path/to/auto-charger && python3 main.py >> charge.log 2>&1
 """
 
 import argparse
@@ -64,7 +65,7 @@ class ChargeResult(Enum):
     """充电结果"""
     SUCCESS = "success"           # 成功
     NO_RECORD = "no_record"       # 无断电记录（不需要重试）
-    PORT_BUSY = "port_busy"       # 端口被占用（需要重试）
+    PORT_BUSY = "port_busy"       # 端口非空闲（跳过本次运行，不重试）
     ERROR = "error"               # 其他错误（需要重试）
     DRY_RUN = "dry_run"           # 仅预览，不启动充电
 
@@ -274,7 +275,7 @@ async def try_charge(session: aiohttp.ClientSession, dry_run: bool = False) -> T
 
         # 5. 检查端口是否空闲
         if not is_port_free(portstatur, port):
-            return ChargeResult.PORT_BUSY, f"端口 {port} 非空闲（可能充电桩未开启）"
+            return ChargeResult.PORT_BUSY, f"端口 {port} 非空闲，跳过本次运行"
 
         log(f"端口 {port} 空闲，准备充电")
 
@@ -304,7 +305,7 @@ async def try_charge(session: aiohttp.ClientSession, dry_run: bool = False) -> T
         if not is_port_free(latest_port_status, port):
             return ChargeResult.PORT_BUSY, (
                 f"端口 {port} 在启动前变为非空闲"
-                "（可能已被其他运行占用或充电桩未开启）"
+                "，跳过本次运行"
             )
 
         # 使用最新一次读取到的设备参数启动充电。
@@ -361,12 +362,12 @@ async def main(dry_run: bool = False):
             log("=" * 50)
             return
 
-        elif result == ChargeResult.NO_RECORD:
+        elif result in (ChargeResult.NO_RECORD, ChargeResult.PORT_BUSY):
             log(f"结果: {message}")
-            log("无需恢复充电，退出")
+            log("本次无需启动充电，退出")
             return
 
-        elif result in (ChargeResult.PORT_BUSY, ChargeResult.ERROR):
+        elif result == ChargeResult.ERROR:
             log(f"结果: {message}")
 
             if attempt < attempts:
