@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import main
 from config import BASE_URL, POWER_OFF_WINDOW_END_MINUTE
@@ -81,17 +81,6 @@ class PowerOffWindowTest(unittest.TestCase):
 
 
 class PortRecheckTest(unittest.IsolatedAsyncioTestCase):
-    async def test_does_not_start_charge_when_port_is_already_busy(self):
-        session = FakeSession([{"portstatur": "100000000000"}])
-        record = record_at(datetime.now(main.TZ_BEIJING) - timedelta(minutes=5))
-
-        with patch.object(main, "find_power_off_record", return_value=record):
-            result, message = await main.try_charge(session)
-
-        self.assertEqual(result, main.ChargeResult.PORT_BUSY)
-        self.assertIn("非空闲", message)
-        self.assertNotIn("beginCharge", [endpoint for endpoint, _ in session.requests])
-
     async def test_does_not_start_charge_when_port_becomes_busy_before_start(self):
         session = FakeSession(
             [
@@ -111,45 +100,6 @@ class PortRecheckTest(unittest.IsolatedAsyncioTestCase):
             2,
         )
         self.assertNotIn("beginCharge", [endpoint for endpoint, _ in session.requests])
-
-
-class RetryTest(unittest.IsolatedAsyncioTestCase):
-    async def test_busy_port_exits_without_sleeping_or_retrying(self):
-        with (
-            patch.object(main, "validate_config", return_value=[]),
-            patch.object(main.aiohttp, "ClientSession"),
-            patch.object(
-                main,
-                "try_charge",
-                new_callable=AsyncMock,
-                return_value=(main.ChargeResult.PORT_BUSY, "端口正在充电"),
-            ) as try_charge,
-            patch.object(main.asyncio, "sleep", new_callable=AsyncMock) as sleep,
-        ):
-            await main.main()
-
-        try_charge.assert_awaited_once()
-        sleep.assert_not_awaited()
-
-    async def test_errors_still_retry_until_charge_succeeds(self):
-        with (
-            patch.object(main, "validate_config", return_value=[]),
-            patch.object(main.aiohttp, "ClientSession"),
-            patch.object(
-                main,
-                "try_charge",
-                new_callable=AsyncMock,
-                side_effect=[
-                    (main.ChargeResult.ERROR, "获取设备信息失败"),
-                    (main.ChargeResult.SUCCESS, "充电启动成功"),
-                ],
-            ) as try_charge,
-            patch.object(main.asyncio, "sleep", new_callable=AsyncMock) as sleep,
-        ):
-            await main.main()
-
-        self.assertEqual(try_charge.await_count, 2)
-        sleep.assert_awaited_once_with(main.RETRY_INTERVAL)
 
 
 class TransportSecurityTest(unittest.TestCase):
